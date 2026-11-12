@@ -1,0 +1,14 @@
+# Dependencies & build output
+node_modules/
+dist/
+tsconfig.tsbuildinfo
+
+# Environment secrets
+.env
+.env.*
+!.env.example
+
+# Logs & local verification artifacts
+*.log
+.playwright-cli/
+.DS_Store

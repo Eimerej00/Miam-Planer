@@ -1,0 +1,191 @@
+{
+  "entities": {
+    "Recipe": {
+      "title": "Recipe",
+      "description": "A user-owned family recipe with ingredients and preparation steps",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "category": {
+          "type": "string",
+          "enum": ["plat", "entree", "accompagnement"]
+        },
+        "cuisineType": {
+          "type": "string",
+          "enum": ["classique", "végétarien", "poisson", "convivial", "rapide", "healthy"]
+        },
+        "prepDuration": {
+          "type": "string",
+          "enum": ["rapide", "moyen", "long"]
+        },
+        "prepMinutes": {
+          "type": "number"
+        },
+        "servings": {
+          "type": "number"
+        },
+        "ingredients": {
+          "type": "array"
+        },
+        "steps": {
+          "type": "array"
+        },
+        "tags": {
+          "type": "array"
+        },
+        "imageUrl": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "imageHint": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "sourceUrl": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "title",
+        "category",
+        "cuisineType",
+        "prepDuration",
+        "prepMinutes",
+        "servings",
+        "ingredients",
+        "steps",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "DayPlan": {
+      "title": "DayPlan",
+      "description": "A user-owned daily meal schedule containing midi and soir slots",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "midi": {
+          "type": "object"
+        },
+        "soir": {
+          "type": "object"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["date", "ownerId", "midi", "soir", "createdAt", "updatedAt"]
+    },
+    "GroceryItem": {
+      "title": "GroceryItem",
+      "description": "A user-owned grocery list item aggregated from recipes or added manually",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "amount": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "category": {
+          "type": "string",
+          "enum": ["legumes", "viandes", "frais", "epicerie", "surgeles", "autres"]
+        },
+        "checked": {
+          "type": "boolean"
+        },
+        "sourceMeal": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "isCustom": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "ownerId", "name", "category", "checked", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/recipes/{recipeId}": {
+      "schema": { "$ref": "#/entities/Recipe" },
+      "description": "Private recipes belonging to the authenticated user"
+    },
+    "/users/{userId}/schedules/{dateKey}": {
+      "schema": { "$ref": "#/entities/DayPlan" },
+      "description": "Private daily meal plans belonging to the authenticated user"
+    },
+    "/users/{userId}/groceries/{itemId}": {
+      "schema": { "$ref": "#/entities/GroceryItem" },
+      "description": "Private grocery list items belonging to the authenticated user"
+    }
+  }
+}

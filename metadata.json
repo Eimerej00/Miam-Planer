@@ -1,0 +1,6 @@
+{
+  "name": "Miam Planner",
+  "description": "Application PWA familiale de gestion des repas : planning 1 à 3 semaines, recettes, import d'URL assisté par IA, planification variée sur 10 jours glissants et liste de courses par rayons.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
