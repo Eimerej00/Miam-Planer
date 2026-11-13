@@ -52,7 +52,9 @@ export const AuthGateScreen: React.FC = () => {
               >
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-700" />
                 <span>
-                  L’authentification Google n’est pas configurée sur cet environnement.
+                  Clé Firebase manquante sur cet environnement. Ajoutez le secret{' '}
+                  <code className="font-mono font-semibold">VITE_FIREBASE_API_KEY</code> dans
+                  GitHub (Settings → Secrets → Actions) puis relancez le déploiement.
                 </span>
               </div>
             ) : (

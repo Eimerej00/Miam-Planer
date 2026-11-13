@@ -372,6 +372,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             : 'Accès refusé : ce compte Google n’est pas autorisé à accéder à l’application.'
         );
         await signOutUser().catch(() => {});
+      } else {
+        setFirebaseUser(signedInUser);
+        setIsAuthorized(true);
+        setAuthError(null);
+        setAuthReady(true);
       }
     } catch (err) {
       const host = typeof window !== 'undefined' ? window.location.hostname : undefined;

@@ -22,6 +22,16 @@ export interface FirebaseClientConfig {
   messagingSenderId?: string;
 }
 
+// Non-secret Firebase project identifiers so CI only needs VITE_FIREBASE_API_KEY
+const PUBLIC_PROJECT_DEFAULTS: Omit<FirebaseClientConfig, 'apiKey'> = {
+  projectId: 'temporal-charge-thl8x',
+  appId: '1:660117405427:web:069094c7c60e7fdebe8186',
+  authDomain: 'temporal-charge-thl8x.firebaseapp.com',
+  firestoreDatabaseId: 'ai-studio-miamplanner-e3209a96-87cf-4f9d-af4e-9dc6a941adcf',
+  storageBucket: 'temporal-charge-thl8x.firebasestorage.app',
+  messagingSenderId: '660117405427',
+};
+
 function cleanValue(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
@@ -46,18 +56,30 @@ export function resolveFirebaseConfig(): FirebaseClientConfig {
   const local = loadLocalAppletConfig();
 
   const apiKey = cleanValue(env.VITE_FIREBASE_API_KEY) || cleanValue(local.apiKey);
-  const projectId = cleanValue(env.VITE_FIREBASE_PROJECT_ID) || cleanValue(local.projectId);
-  const appId = cleanValue(env.VITE_FIREBASE_APP_ID) || cleanValue(local.appId);
+  const projectId =
+    cleanValue(env.VITE_FIREBASE_PROJECT_ID) ||
+    cleanValue(local.projectId) ||
+    PUBLIC_PROJECT_DEFAULTS.projectId;
+  const appId =
+    cleanValue(env.VITE_FIREBASE_APP_ID) ||
+    cleanValue(local.appId) ||
+    PUBLIC_PROJECT_DEFAULTS.appId;
   const authDomain =
     cleanValue(env.VITE_FIREBASE_AUTH_DOMAIN) ||
     cleanValue(local.authDomain) ||
-    (projectId ? `${projectId}.firebaseapp.com` : undefined);
+    (projectId ? `${projectId}.firebaseapp.com` : PUBLIC_PROJECT_DEFAULTS.authDomain);
   const firestoreDatabaseId =
-    cleanValue(env.VITE_FIREBASE_FIRESTORE_DATABASE_ID) || cleanValue(local.firestoreDatabaseId);
+    cleanValue(env.VITE_FIREBASE_FIRESTORE_DATABASE_ID) ||
+    cleanValue(local.firestoreDatabaseId) ||
+    PUBLIC_PROJECT_DEFAULTS.firestoreDatabaseId;
   const storageBucket =
-    cleanValue(env.VITE_FIREBASE_STORAGE_BUCKET) || cleanValue(local.storageBucket);
+    cleanValue(env.VITE_FIREBASE_STORAGE_BUCKET) ||
+    cleanValue(local.storageBucket) ||
+    PUBLIC_PROJECT_DEFAULTS.storageBucket;
   const messagingSenderId =
-    cleanValue(env.VITE_FIREBASE_MESSAGING_SENDER_ID) || cleanValue(local.messagingSenderId);
+    cleanValue(env.VITE_FIREBASE_MESSAGING_SENDER_ID) ||
+    cleanValue(local.messagingSenderId) ||
+    PUBLIC_PROJECT_DEFAULTS.messagingSenderId;
 
   return {
     apiKey,
@@ -91,6 +113,8 @@ export const db = dbInstance;
 export const auth = authInstance;
 
 const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('email');
+googleProvider.addScope('profile');
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 function isTopLevelWindow(): boolean {

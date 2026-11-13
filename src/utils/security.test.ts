@@ -4,7 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   normalizeEmail,
+  sha256Hex,
+  sha256FallbackHex,
   isEmailWhitelisted,
+  extractGoogleUserEmail,
   evaluateGoogleUserAccess,
 } from './security.ts';
 import { extractFirebaseAuthCode, formatFirebaseAuthError } from './authErrors.ts';
@@ -13,6 +16,12 @@ test('normalizeEmail trims whitespace and lowercases email', () => {
   assert.equal(normalizeEmail('  User@Example.COM  '), 'user@example.com');
   assert.equal(normalizeEmail(null), '');
   assert.equal(normalizeEmail(undefined), '');
+});
+
+test('sha256FallbackHex matches WebCrypto sha256Hex exactly', async () => {
+  for (const sample of ['', 'abc', 'jeremie.lecorney@gmail.com', 'jenni.mans00@gmail.com']) {
+    assert.equal(sha256FallbackHex(sample), await sha256Hex(sample));
+  }
 });
 
 test('isEmailWhitelisted permits only the two authorized emails regardless of case/spacing', async () => {
@@ -26,6 +35,18 @@ test('isEmailWhitelisted permits only the two authorized emails regardless of ca
   assert.equal(await isEmailWhitelisted('jenni.mans0@gmail.com'), false);
   assert.equal(await isEmailWhitelisted(''), false);
   assert.equal(await isEmailWhitelisted(null), false);
+});
+
+test('extractGoogleUserEmail resolves email from top-level user or providerData', () => {
+  assert.equal(
+    extractGoogleUserEmail({
+      email: null,
+      providerData: [{ providerId: 'google.com', email: 'Jenni.Mans00@gmail.com' }],
+    }),
+    'jenni.mans00@gmail.com'
+  );
+  assert.equal(extractGoogleUserEmail({ email: '  Jeremie.Lecorney@gmail.com ' }), 'jeremie.lecorney@gmail.com');
+  assert.equal(extractGoogleUserEmail(null), '');
 });
 
 test('evaluateGoogleUserAccess enforces authentication, verified email, and whitelist', async () => {
@@ -60,8 +81,9 @@ test('evaluateGoogleUserAccess enforces authentication, verified email, and whit
 
   assert.deepEqual(
     await evaluateGoogleUserAccess({
-      email: 'jenni.mans00@gmail.com',
+      email: null,
       emailVerified: true,
+      providerData: [{ providerId: 'google.com', email: 'jenni.mans00@gmail.com' }],
     }),
     { allowed: true }
   );
@@ -100,4 +122,3 @@ test('extractFirebaseAuthCode and formatFirebaseAuthError surface diagnostic cod
     'Connexion Google annulée.'
   );
 });
-
