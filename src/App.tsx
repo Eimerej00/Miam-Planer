@@ -1,6 +1,6 @@
 import React from 'react';
 import { AppProvider, useApp } from './context/AppContext.tsx';
-import { PinLockScreen } from './components/PinLockScreen.tsx';
+import { AuthGateScreen } from './components/AuthGateScreen.tsx';
 import { TopNav } from './components/TopNav.tsx';
 import { BottomTabBar } from './components/BottomTabBar.tsx';
 import { PlanningTab } from './components/tabs/PlanningTab.tsx';
@@ -12,10 +12,10 @@ import { OfflineIndicator } from './components/OfflineIndicator.tsx';
 import { PWAInstallButton } from './components/PWAInstallButton.tsx';
 
 const AppShell: React.FC = () => {
-  const { isLocked, activeTab } = useApp();
+  const { authReady, isAuthorized, activeTab } = useApp();
 
-  if (isLocked) {
-    return <PinLockScreen />;
+  if (!authReady || !isAuthorized) {
+    return <AuthGateScreen />;
   }
 
   return (

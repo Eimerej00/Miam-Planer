@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext.tsx';
 import {
-  Lock,
   Download,
   Upload,
   WifiOff,
@@ -18,7 +17,6 @@ export const TopNav: React.FC = () => {
   const {
     activeTab,
     setActiveTab,
-    lockApp,
     isOnline,
     exportBackupJson,
     importBackupJson,
@@ -140,13 +138,13 @@ export const TopNav: React.FC = () => {
             </button>
 
             <button
-              onClick={lockApp}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#3D5A45] bg-[#EAF0EC] hover:bg-[#E2ECE4] border border-[#CCDCD0] rounded-lg transition-colors cursor-pointer"
-              title="Verrouiller l'accès"
-              aria-label="Verrouiller l'accès"
+              onClick={disconnectGoogleCloud}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#3D5A45] bg-[#EAF0EC] hover:bg-[#E2ECE4] border border-[#CCDCD0] rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              title="Se déconnecter"
+              aria-label="Se déconnecter"
             >
-              <Lock className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Verrouiller</span>
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Déconnexion</span>
             </button>
           </div>
         </div>
@@ -173,7 +171,7 @@ export const TopNav: React.FC = () => {
                       <span>Compte privé connecté</span>
                     </div>
                     <p className="text-[11px] text-slate-600 truncate mt-0.5">
-                      {firebaseUser.email || firebaseUser.uid}
+                      {firebaseUser.displayName || 'Compte Google autorisé'}
                     </p>
                   </div>
                   <button

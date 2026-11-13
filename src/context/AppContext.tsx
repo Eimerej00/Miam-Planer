@@ -11,11 +11,8 @@ import type {
 } from '../types/index.ts';
 import { INITIAL_RECIPES, getInitialSchedule } from '../data/mockData.ts';
 import {
-  isSessionUnlocked,
-  verifyMasterPin,
-  lockSession,
-  setMasterPin,
-  initDefaultPinIfEmpty,
+  clearLegacyPinStorage,
+  evaluateGoogleUserAccess,
 } from '../utils/security.ts';
 import {
   generateSchedulePlan,
@@ -38,10 +35,10 @@ import {
 export type CloudSyncStatus = 'local' | 'syncing' | 'synced' | 'error';
 
 interface AppContextValue {
-  isLocked: boolean;
-  unlockWithPin: (pin: string) => Promise<{ ok: boolean; lockoutSeconds?: number }>;
-  lockApp: () => void;
-  updateMasterPin: (newPin: string) => Promise<boolean>;
+  authReady: boolean;
+  isAuthorized: boolean;
+  isSigningIn: boolean;
+  authError: string | null;
 
   firebaseUser: User | null;
   cloudSyncStatus: CloudSyncStatus;
@@ -97,7 +94,10 @@ const STORAGE_SCHEDULE = 'miam_planner_schedule_v1';
 const STORAGE_GROCERIES = 'miam_planner_groceries_v1';
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isLocked, setIsLocked] = useState(true);
+  const [authReady, setAuthReady] = useState<boolean>(!auth);
+  const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
+  const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>('planning');
   const [weekOffset, setWeekOffset] = useState<number>(0);
   const [isOnline, setIsOnline] = useState(
@@ -112,11 +112,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const cloudScheduleKeysRef = useRef<Set<string>>(new Set());
   const cloudGroceryIdsRef = useRef<Set<string>>(new Set());
   const initialCloudSeededRef = useRef<string | null>(null);
+  const authCheckSeqRef = useRef<number>(0);
 
-  // Initialize master PIN and check unlocked state
+  // Clean up obsolete PIN keys and track online status
   useEffect(() => {
-    initDefaultPinIfEmpty();
-    setIsLocked(!isSessionUnlocked());
+    clearLegacyPinStorage();
 
     const onOnline = () => setIsOnline(true);
     const onOffline = () => setIsOnline(false);
@@ -225,39 +225,65 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
-  // Firebase Auth listener & real-time private Firestore sync
+  // Firebase Auth listener, whitelist enforcement & real-time private Firestore sync
   useEffect(() => {
     if (!auth) {
+      setAuthReady(true);
+      setIsAuthorized(false);
       setCloudSyncStatus('local');
       return;
     }
 
     let unsubFirestore: (() => void) | null = null;
+    let mounted = true;
 
-    const unsubAuth = onAuthStateChanged(auth, (user) => {
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      const seq = ++authCheckSeqRef.current;
+
       if (unsubFirestore) {
         unsubFirestore();
         unsubFirestore = null;
       }
-
-      setFirebaseUser(user);
-      setCloudError(null);
 
       if (!user) {
         cloudRecipeIdsRef.current = new Set();
         cloudScheduleKeysRef.current = new Set();
         cloudGroceryIdsRef.current = new Set();
         initialCloudSeededRef.current = null;
+        if (!mounted || seq !== authCheckSeqRef.current) return;
+        setFirebaseUser(null);
+        setIsAuthorized(false);
         setCloudSyncStatus('local');
+        setAuthReady(true);
         return;
       }
 
-      if (!user.emailVerified) {
-        setCloudSyncStatus('error');
-        setCloudError('Votre adresse e-mail Google doit être vérifiée pour activer la synchronisation.');
+      const access = await evaluateGoogleUserAccess(user);
+      if (!mounted || seq !== authCheckSeqRef.current) return;
+
+      if (!access.allowed) {
+        cloudRecipeIdsRef.current = new Set();
+        cloudScheduleKeysRef.current = new Set();
+        cloudGroceryIdsRef.current = new Set();
+        initialCloudSeededRef.current = null;
+        setFirebaseUser(null);
+        setIsAuthorized(false);
+        setCloudSyncStatus('local');
+        setAuthError(
+          access.reason === 'unverified'
+            ? 'Accès refusé : votre adresse Google doit être vérifiée.'
+            : 'Accès refusé : ce compte Google n’est pas autorisé à accéder à l’application.'
+        );
+        setAuthReady(true);
+        await signOutUser().catch(() => {});
         return;
       }
 
+      setFirebaseUser(user);
+      setIsAuthorized(true);
+      setAuthError(null);
+      setCloudError(null);
+      setAuthReady(true);
       setCloudSyncStatus('syncing');
       const uid = user.uid;
 
@@ -311,42 +337,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     return () => {
+      mounted = false;
       if (unsubFirestore) unsubFirestore();
       unsubAuth();
     };
   }, []);
 
   const connectGoogleCloud = async () => {
+    setAuthError(null);
     setCloudError(null);
+    setIsSigningIn(true);
     try {
-      await signInWithGoogle();
+      const signedInUser = await signInWithGoogle();
+      const access = await evaluateGoogleUserAccess(signedInUser);
+      if (!access.allowed) {
+        setAuthError(
+          access.reason === 'unverified'
+            ? 'Accès refusé : votre adresse Google doit être vérifiée.'
+            : 'Accès refusé : ce compte Google n’est pas autorisé à accéder à l’application.'
+        );
+        await signOutUser().catch(() => {});
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setCloudError(`Connexion Google annulée ou refusée (${msg})`);
+      if (msg.includes('popup-closed-by-user') || msg.includes('cancelled-popup-request')) {
+        setAuthError('Connexion Google annulée.');
+      } else {
+        setAuthError('Impossible de finaliser la connexion Google. Réessayez.');
+      }
+      setCloudError('Connexion Google annulée ou refusée.');
+    } finally {
+      setIsSigningIn(false);
     }
   };
 
   const disconnectGoogleCloud = async () => {
+    setAuthError(null);
+    setCloudError(null);
+    setIsAuthorized(false);
+    setFirebaseUser(null);
     await signOutUser();
     setCloudSyncStatus('local');
   };
 
-  const isCloudReady = Boolean(firebaseUser && firebaseUser.emailVerified);
-
-  const unlockWithPin = async (pin: string) => {
-    const res = await verifyMasterPin(pin);
-    if (res.ok) setIsLocked(false);
-    return res;
-  };
-
-  const lockApp = () => {
-    lockSession();
-    setIsLocked(true);
-  };
-
-  const updateMasterPin = async (newPin: string): Promise<boolean> => {
-    return await setMasterPin(newPin);
-  };
+  const isCloudReady = Boolean(firebaseUser && firebaseUser.emailVerified && isAuthorized);
 
   const addRecipe = (recData: Omit<Recipe, 'id' | 'createdAt'>): Recipe => {
     const candidate: Recipe = {
@@ -595,10 +629,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider
       value={{
-        isLocked,
-        unlockWithPin,
-        lockApp,
-        updateMasterPin,
+        authReady,
+        isAuthorized,
+        isSigningIn,
+        authError,
         firebaseUser,
         cloudSyncStatus,
         cloudError,

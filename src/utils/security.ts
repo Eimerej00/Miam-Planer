@@ -1,160 +1,74 @@
-const PIN_STORAGE_KEY = 'miam_planner_pin_hash';
-const PIN_SALT_KEY = 'miam_planner_pin_salt';
-const SESSION_UNLOCKED_KEY = 'miam_planner_session_unlocked';
-const SESSION_TIMESTAMP_KEY = 'miam_planner_session_ts';
-const FAILED_ATTEMPTS_KEY = 'miam_planner_pin_failures';
-const LOCKOUT_UNTIL_KEY = 'miam_planner_pin_lockout_until';
+// SHA-256 digests of normalized (trim + lowercase) authorized Google emails.
+// Plaintext addresses are intentionally omitted from client source/bundles.
+const ALLOWED_EMAIL_SHA256_HASHES: ReadonlySet<string> = new Set([
+  '59e4451f74cede67425afbff1923861880f16dd2f22dda0d3373b10c489c27ea',
+  'e12630f08951f3309c569178b53fa918180d0c94feaeb8a76638cf356bd47899',
+]);
 
-const AUTO_LOCK_MINUTES = 30;
-const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 30_000;
-const PBKDF2_ITERATIONS = 100_000;
+const LEGACY_PIN_KEYS = [
+  'miam_planner_pin_hash',
+  'miam_planner_pin_salt',
+  'miam_planner_session_unlocked',
+  'miam_planner_session_ts',
+  'miam_planner_pin_failures',
+  'miam_planner_pin_lockout_until',
+];
 
-function generateCryptoSalt(byteLength = 16): string {
-  const bytes = new Uint8Array(byteLength);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes)
+export function clearLegacyPinStorage(): void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  for (const key of LEGACY_PIN_KEYS) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Ignore storage errors
+    }
+  }
+}
+
+export function normalizeEmail(email: string | null | undefined): string {
+  return typeof email === 'string' ? email.trim().toLowerCase() : '';
+}
+
+export async function sha256Hex(value: string): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error('Web Crypto API indisponible pour la vérification de session.');
+  }
+  const encoded = new TextEncoder().encode(value);
+  const digest = await subtle.digest('SHA-256', encoded);
+  return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
 
-async function legacySha256(str: string): Promise<string> {
-  const enc = new TextEncoder();
-  const hash = await crypto.subtle.digest('SHA-256', enc.encode(str));
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+export async function isEmailWhitelisted(email: string | null | undefined): Promise<boolean> {
+  const normalized = normalizeEmail(email);
+  if (!normalized || !normalized.includes('@')) return false;
+  const hash = await sha256Hex(normalized);
+  return ALLOWED_EMAIL_SHA256_HASHES.has(hash);
 }
 
-export async function derivePinHash(pin: string, salt: string): Promise<string> {
-  const enc = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    enc.encode(pin),
-    { name: 'PBKDF2' },
-    false,
-    ['deriveBits']
-  );
-  const derivedBits = await crypto.subtle.deriveBits(
-    {
-      name: 'PBKDF2',
-      salt: enc.encode(salt),
-      iterations: PBKDF2_ITERATIONS,
-      hash: 'SHA-256',
-    },
-    keyMaterial,
-    256
-  );
-  const hex = Array.from(new Uint8Array(derivedBits))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-  return `pbkdf2_v1:${hex}`;
+export interface MinimalGoogleUser {
+  email?: string | null;
+  emailVerified?: boolean;
 }
 
-export async function initDefaultPinIfEmpty(): Promise<void> {
-  if (typeof window === 'undefined') return;
-  const existing = localStorage.getItem(PIN_STORAGE_KEY);
-  if (!existing) {
-    const salt = generateCryptoSalt();
-    localStorage.setItem(PIN_SALT_KEY, salt);
-    const hash = await derivePinHash('1234', salt);
-    localStorage.setItem(PIN_STORAGE_KEY, hash);
+export type AccessCheckResult =
+  | { allowed: true }
+  | { allowed: false; reason: 'unauthenticated' | 'unverified' | 'unauthorized' };
+
+export async function evaluateGoogleUserAccess(
+  user: MinimalGoogleUser | null | undefined
+): Promise<AccessCheckResult> {
+  if (!user) {
+    return { allowed: false, reason: 'unauthenticated' };
   }
-}
-
-export async function setMasterPin(newPin: string): Promise<boolean> {
-  if (!newPin || !/^\d{4,8}$/.test(newPin)) return false;
-  const salt = generateCryptoSalt();
-  localStorage.setItem(PIN_SALT_KEY, salt);
-  const hash = await derivePinHash(newPin, salt);
-  localStorage.setItem(PIN_STORAGE_KEY, hash);
-  localStorage.removeItem(FAILED_ATTEMPTS_KEY);
-  localStorage.removeItem(LOCKOUT_UNTIL_KEY);
-  localStorage.setItem(SESSION_UNLOCKED_KEY, 'true');
-  localStorage.setItem(SESSION_TIMESTAMP_KEY, Date.now().toString());
-  return true;
-}
-
-export async function verifyMasterPin(
-  inputPin: string
-): Promise<{ ok: boolean; lockoutSeconds?: number }> {
-  if (typeof window === 'undefined') return { ok: false };
-
-  const lockoutUntilStr = localStorage.getItem(LOCKOUT_UNTIL_KEY);
-  if (lockoutUntilStr) {
-    const lockoutUntil = parseInt(lockoutUntilStr, 10);
-    if (Date.now() < lockoutUntil) {
-      return {
-        ok: false,
-        lockoutSeconds: Math.ceil((lockoutUntil - Date.now()) / 1000),
-      };
-    }
-    localStorage.removeItem(LOCKOUT_UNTIL_KEY);
-    localStorage.removeItem(FAILED_ATTEMPTS_KEY);
+  if (!user.emailVerified) {
+    return { allowed: false, reason: 'unverified' };
   }
-
-  const storedHash = localStorage.getItem(PIN_STORAGE_KEY);
-  const salt = localStorage.getItem(PIN_SALT_KEY) || '';
-  let match = false;
-
-  if (!storedHash) {
-    match = inputPin === '1234';
-    if (match) {
-      await setMasterPin('1234');
-    }
-  } else if (storedHash.startsWith('pbkdf2_v1:')) {
-    const inputHash = await derivePinHash(inputPin, salt);
-    match = inputHash === storedHash;
-  } else {
-    const legacyHash = await legacySha256(`${inputPin}:${salt}`);
-    match = legacyHash === storedHash;
-    if (match) {
-      // Transparently upgrade legacy SHA-256 PIN to PBKDF2
-      const newSalt = generateCryptoSalt();
-      const upgraded = await derivePinHash(inputPin, newSalt);
-      localStorage.setItem(PIN_SALT_KEY, newSalt);
-      localStorage.setItem(PIN_STORAGE_KEY, upgraded);
-    }
+  const whitelisted = await isEmailWhitelisted(user.email);
+  if (!whitelisted) {
+    return { allowed: false, reason: 'unauthorized' };
   }
-
-  if (match) {
-    localStorage.removeItem(FAILED_ATTEMPTS_KEY);
-    localStorage.removeItem(LOCKOUT_UNTIL_KEY);
-    localStorage.setItem(SESSION_UNLOCKED_KEY, 'true');
-    localStorage.setItem(SESSION_TIMESTAMP_KEY, Date.now().toString());
-    return { ok: true };
-  }
-
-  const failures = parseInt(localStorage.getItem(FAILED_ATTEMPTS_KEY) || '0', 10) + 1;
-  localStorage.setItem(FAILED_ATTEMPTS_KEY, String(failures));
-  if (failures >= MAX_FAILED_ATTEMPTS) {
-    const until = Date.now() + LOCKOUT_DURATION_MS;
-    localStorage.setItem(LOCKOUT_UNTIL_KEY, String(until));
-    return { ok: false, lockoutSeconds: Math.ceil(LOCKOUT_DURATION_MS / 1000) };
-  }
-
-  return { ok: false };
-}
-
-export function isSessionUnlocked(): boolean {
-  if (typeof window === 'undefined') return false;
-  const isUnlocked = localStorage.getItem(SESSION_UNLOCKED_KEY) === 'true';
-  if (!isUnlocked) return false;
-
-  const tsStr = localStorage.getItem(SESSION_TIMESTAMP_KEY);
-  if (!tsStr) return false;
-  const elapsedMinutes = (Date.now() - parseInt(tsStr, 10)) / (1000 * 60);
-
-  if (elapsedMinutes > AUTO_LOCK_MINUTES) {
-    lockSession();
-    return false;
-  }
-  localStorage.setItem(SESSION_TIMESTAMP_KEY, Date.now().toString());
-  return true;
-}
-
-export function lockSession(): void {
-  if (typeof window === 'undefined') return;
-  localStorage.removeItem(SESSION_UNLOCKED_KEY);
-  localStorage.removeItem(SESSION_TIMESTAMP_KEY);
+  return { allowed: true };
 }

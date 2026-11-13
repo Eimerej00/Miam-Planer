@@ -15,8 +15,18 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
+    function isWhitelistedUser() {
+      return isVerifiedUser()
+        && ('email' in request.auth.token)
+        && request.auth.token.email is string
+        && request.auth.token.email.lower() in [
+          'jeremie.lecorney@gmail.com',
+          'jenni.mans00@gmail.com'
+        ];
+    }
+
     function isVerifiedOwner(userId) {
-      return isVerifiedUser() && request.auth.uid == userId;
+      return isWhitelistedUser() && request.auth.uid == userId;
     }
 
     function incoming() {
