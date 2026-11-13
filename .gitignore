@@ -1,14 +1,64 @@
-# Dependencies & build output
+# Dependencies & package manager caches
 node_modules/
-dist/
-tsconfig.tsbuildinfo
+.pnpm-store/
+.bun/
 
-# Environment secrets
+# Build output & TypeScript incremental cache
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+
+# Environment files (keep only non-secret templates)
 .env
 .env.*
 !.env.example
+!.env.template
 
-# Logs & local verification artifacts
+# Firebase & Google Cloud sensitive configs / credentials
+firebase-applet-config.json
+**/firebase-applet-config.json
+firebase_applet_config.xml
+.firebase/
+.runtimeconfig.json
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+*-firebase-adminsdk-*.json
+*service-account*.json
+serviceAccountKey.json
+google-services.json
+GoogleService-Info.plist
+credentials.json
+client_secret*.json
+secrets.json
+*.local.json
+!*example*.json
+
+# Keys, certificates & auth tokens
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+.npmrc
+.netrc
+
+# Logs, test artifacts, OS & IDE files
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 .playwright-cli/
+playwright-report/
+test-results/
+coverage/
 .DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo

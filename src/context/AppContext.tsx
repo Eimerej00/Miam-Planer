@@ -227,6 +227,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Firebase Auth listener & real-time private Firestore sync
   useEffect(() => {
+    if (!auth) {
+      setCloudSyncStatus('local');
+      return;
+    }
+
     let unsubFirestore: (() => void) | null = null;
 
     const unsubAuth = onAuthStateChanged(auth, (user) => {

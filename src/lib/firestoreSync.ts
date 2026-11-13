@@ -130,12 +130,16 @@ export function subscribeUserData(
     onError: (err: unknown) => void;
   }
 ): Unsubscribe {
+  if (!db) {
+    return () => {};
+  }
+  const firestore = db;
   const recipesPath = `users/${uid}/recipes`;
   const schedulesPath = `users/${uid}/schedules`;
   const groceriesPath = `users/${uid}/groceries`;
 
   const unsubRecipes = onSnapshot(
-    query(collection(db, recipesPath), where('ownerId', '==', uid)),
+    query(collection(firestore, recipesPath), where('ownerId', '==', uid)),
     (snapshot) => {
       const list: Recipe[] = [];
       snapshot.forEach((docSnap) => {
@@ -158,7 +162,7 @@ export function subscribeUserData(
   );
 
   const unsubSchedules = onSnapshot(
-    query(collection(db, schedulesPath), where('ownerId', '==', uid)),
+    query(collection(firestore, schedulesPath), where('ownerId', '==', uid)),
     (snapshot) => {
       const map: ScheduleMap = {};
       snapshot.forEach((docSnap) => {
@@ -174,7 +178,7 @@ export function subscribeUserData(
   );
 
   const unsubGroceries = onSnapshot(
-    query(collection(db, groceriesPath), where('ownerId', '==', uid)),
+    query(collection(firestore, groceriesPath), where('ownerId', '==', uid)),
     (snapshot) => {
       const list: GroceryItem[] = [];
       snapshot.forEach((docSnap) => {
@@ -201,6 +205,7 @@ export async function saveRecipeToCloud(
   recipe: Recipe,
   isCreate: boolean
 ): Promise<void> {
+  if (!db) return;
   const path = `users/${uid}/recipes/${recipe.id}`;
   try {
     if (isCreate) {
@@ -217,6 +222,7 @@ export async function saveRecipeToCloud(
 }
 
 export async function deleteRecipeFromCloud(uid: string, recipeId: string): Promise<void> {
+  if (!db) return;
   const path = `users/${uid}/recipes/${recipeId}`;
   try {
     await deleteDoc(doc(db, path));
@@ -231,6 +237,7 @@ export async function saveDayPlanToCloud(
   dayPlan: DayPlan,
   existsInCloud: boolean
 ): Promise<void> {
+  if (!db) return;
   const path = `users/${uid}/schedules/${dateKey}`;
   try {
     if (!existsInCloud) {
@@ -256,6 +263,7 @@ export async function saveGroceryItemToCloud(
   item: GroceryItem,
   existsInCloud: boolean
 ): Promise<void> {
+  if (!db) return;
   const path = `users/${uid}/groceries/${item.id}`;
   try {
     if (!existsInCloud) {
@@ -276,6 +284,7 @@ export async function saveGroceryItemToCloud(
 }
 
 export async function deleteGroceryItemFromCloud(uid: string, itemId: string): Promise<void> {
+  if (!db) return;
   const path = `users/${uid}/groceries/${itemId}`;
   try {
     await deleteDoc(doc(db, path));
