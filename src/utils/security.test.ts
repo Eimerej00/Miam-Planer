@@ -7,6 +7,7 @@ import {
   isEmailWhitelisted,
   evaluateGoogleUserAccess,
 } from './security.ts';
+import { extractFirebaseAuthCode, formatFirebaseAuthError } from './authErrors.ts';
 
 test('normalizeEmail trims whitespace and lowercases email', () => {
   assert.equal(normalizeEmail('  User@Example.COM  '), 'user@example.com');
@@ -71,3 +72,32 @@ test('client security source does not expose plaintext allowlisted email address
   assert.equal(source.toLowerCase().includes('jeremie.lecorney'), false);
   assert.equal(source.toLowerCase().includes('jenni.mans00'), false);
 });
+
+test('extractFirebaseAuthCode and formatFirebaseAuthError surface diagnostic codes', () => {
+  assert.equal(
+    extractFirebaseAuthCode({ code: 'auth/unauthorized-domain' }),
+    'auth/unauthorized-domain'
+  );
+  assert.equal(
+    extractFirebaseAuthCode(new Error('Firebase: Error (auth/operation-not-allowed).')),
+    'auth/operation-not-allowed'
+  );
+
+  assert.match(
+    formatFirebaseAuthError({ code: 'auth/unauthorized-domain' }, 'eimerej00.github.io'),
+    /eimerej00\.github\.io.*auth\/unauthorized-domain/
+  );
+  assert.match(
+    formatFirebaseAuthError({ code: 'auth/operation-not-allowed' }),
+    /auth\/operation-not-allowed/
+  );
+  assert.match(
+    formatFirebaseAuthError(new Error('API_KEY_HTTP_REFERRER_BLOCKED')),
+    /restriction Google Cloud/
+  );
+  assert.equal(
+    formatFirebaseAuthError({ code: 'auth/popup-closed-by-user' }),
+    'Connexion Google annulée.'
+  );
+});
+

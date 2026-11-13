@@ -1,13 +1,16 @@
 import { initializeApp, getApps } from 'firebase/app';
 import {
   getAuth,
+  getRedirectResult,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   type Auth,
   type User,
 } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer, type Firestore } from 'firebase/firestore';
+import { extractFirebaseAuthCode } from '../utils/authErrors.ts';
 
 export interface FirebaseClientConfig {
   projectId?: string;
@@ -17,6 +20,12 @@ export interface FirebaseClientConfig {
   firestoreDatabaseId?: string;
   storageBucket?: string;
   messagingSenderId?: string;
+}
+
+function cleanValue(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function loadLocalAppletConfig(): FirebaseClientConfig {
@@ -36,15 +45,19 @@ export function resolveFirebaseConfig(): FirebaseClientConfig {
   const env = (import.meta.env || {}) as Record<string, string | undefined>;
   const local = loadLocalAppletConfig();
 
-  const apiKey = env.VITE_FIREBASE_API_KEY || local.apiKey;
-  const projectId = env.VITE_FIREBASE_PROJECT_ID || local.projectId;
-  const appId = env.VITE_FIREBASE_APP_ID || local.appId;
-  const authDomain = env.VITE_FIREBASE_AUTH_DOMAIN || local.authDomain;
+  const apiKey = cleanValue(env.VITE_FIREBASE_API_KEY) || cleanValue(local.apiKey);
+  const projectId = cleanValue(env.VITE_FIREBASE_PROJECT_ID) || cleanValue(local.projectId);
+  const appId = cleanValue(env.VITE_FIREBASE_APP_ID) || cleanValue(local.appId);
+  const authDomain =
+    cleanValue(env.VITE_FIREBASE_AUTH_DOMAIN) ||
+    cleanValue(local.authDomain) ||
+    (projectId ? `${projectId}.firebaseapp.com` : undefined);
   const firestoreDatabaseId =
-    env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || local.firestoreDatabaseId;
-  const storageBucket = env.VITE_FIREBASE_STORAGE_BUCKET || local.storageBucket;
+    cleanValue(env.VITE_FIREBASE_FIRESTORE_DATABASE_ID) || cleanValue(local.firestoreDatabaseId);
+  const storageBucket =
+    cleanValue(env.VITE_FIREBASE_STORAGE_BUCKET) || cleanValue(local.storageBucket);
   const messagingSenderId =
-    env.VITE_FIREBASE_MESSAGING_SENDER_ID || local.messagingSenderId;
+    cleanValue(env.VITE_FIREBASE_MESSAGING_SENDER_ID) || cleanValue(local.messagingSenderId);
 
   return {
     apiKey,
@@ -59,7 +72,10 @@ export function resolveFirebaseConfig(): FirebaseClientConfig {
 
 const resolvedConfig = resolveFirebaseConfig();
 export const isFirebaseConfigured = Boolean(
-  resolvedConfig.apiKey && resolvedConfig.projectId && resolvedConfig.appId
+  resolvedConfig.apiKey &&
+    resolvedConfig.projectId &&
+    resolvedConfig.appId &&
+    resolvedConfig.authDomain
 );
 
 let dbInstance: Firestore | null = null;
@@ -77,12 +93,40 @@ export const auth = authInstance;
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-export async function signInWithGoogle(): Promise<User> {
+function isTopLevelWindow(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self === window.top;
+  } catch {
+    return false;
+  }
+}
+
+export async function signInWithGoogle(): Promise<User | null> {
   if (!auth) {
     throw new Error('La synchronisation Firebase n’est pas configurée sur cet environnement.');
   }
-  const credential = await signInWithPopup(auth, googleProvider);
-  return credential.user;
+  try {
+    const credential = await signInWithPopup(auth, googleProvider);
+    return credential.user;
+  } catch (err) {
+    const code = extractFirebaseAuthCode(err);
+    const canRedirectFallback =
+      isTopLevelWindow() &&
+      (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment');
+
+    if (canRedirectFallback) {
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
+    throw err;
+  }
+}
+
+export async function checkGoogleRedirectResult(): Promise<User | null> {
+  if (!auth) return null;
+  const result = await getRedirectResult(auth);
+  return result?.user ?? null;
 }
 
 export async function signOutUser(): Promise<void> {

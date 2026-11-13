@@ -22,7 +22,13 @@ import {
 } from '../utils/planGenerator.ts';
 import { buildGroceryListForDates } from '../utils/groceries.ts';
 import { parseAndValidateBackupJson, sanitizeRecipe } from '../utils/validation.ts';
-import { auth, signInWithGoogle, signOutUser } from '../lib/firebase.ts';
+import { formatFirebaseAuthError } from '../utils/authErrors.ts';
+import {
+  auth,
+  checkGoogleRedirectResult,
+  signInWithGoogle,
+  signOutUser,
+} from '../lib/firebase.ts';
 import {
   subscribeUserData,
   saveRecipeToCloud,
@@ -237,6 +243,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let unsubFirestore: (() => void) | null = null;
     let mounted = true;
 
+    void checkGoogleRedirectResult().catch((err) => {
+      if (!mounted) return;
+      const host = typeof window !== 'undefined' ? window.location.hostname : undefined;
+      setAuthError(formatFirebaseAuthError(err, host));
+    });
+
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       const seq = ++authCheckSeqRef.current;
 
@@ -349,6 +361,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsSigningIn(true);
     try {
       const signedInUser = await signInWithGoogle();
+      if (!signedInUser) {
+        return;
+      }
       const access = await evaluateGoogleUserAccess(signedInUser);
       if (!access.allowed) {
         setAuthError(
@@ -359,13 +374,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         await signOutUser().catch(() => {});
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('popup-closed-by-user') || msg.includes('cancelled-popup-request')) {
-        setAuthError('Connexion Google annulée.');
-      } else {
-        setAuthError('Impossible de finaliser la connexion Google. Réessayez.');
-      }
-      setCloudError('Connexion Google annulée ou refusée.');
+      const host = typeof window !== 'undefined' ? window.location.hostname : undefined;
+      const friendlyError = formatFirebaseAuthError(err, host);
+      setAuthError(friendlyError);
+      setCloudError(friendlyError);
     } finally {
       setIsSigningIn(false);
     }
