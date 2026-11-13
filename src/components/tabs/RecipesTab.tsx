@@ -1,22 +1,30 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext.tsx';
 import type { Recipe, PrepDuration, Ingredient } from '../../types/index.ts';
+import type { ExtractedRecipeDraft } from '../../utils/recipeParser.ts';
 import {
   Search,
   Plus,
-  Sparkles,
+  Link2,
   Clock,
   Users,
   ChefHat,
   Trash2,
   Edit2,
-  ExternalLink,
   X,
 } from 'lucide-react';
 import { RecipeEditModal } from '../modals/RecipeEditModal.tsx';
 import { UrlImportModal } from '../modals/UrlImportModal.tsx';
 
-export const RecipesTab: React.FC = () => {
+interface RecipesTabProps {
+  pendingImportDraft?: ExtractedRecipeDraft | null;
+  onClearPendingImport?: () => void;
+}
+
+export const RecipesTab: React.FC<RecipesTabProps> = ({
+  pendingImportDraft = null,
+  onClearPendingImport,
+}) => {
   const { recipes, deleteRecipe, updateRecipe } = useApp();
 
   const [search, setSearch] = useState('');
@@ -26,6 +34,16 @@ export const RecipesTab: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [recipeToEdit, setRecipeToEdit] = useState<Recipe | null>(null);
   const [isImportingUrl, setIsImportingUrl] = useState(false);
+  const [activeImportDraft, setActiveImportDraft] =
+    useState<ExtractedRecipeDraft | null>(null);
+
+  useEffect(() => {
+    if (pendingImportDraft) {
+      setActiveImportDraft(pendingImportDraft);
+      setIsImportingUrl(true);
+      onClearPendingImport?.();
+    }
+  }, [pendingImportDraft, onClearPendingImport]);
 
   const handleOpenRecipe = (recipe: Recipe) => {
     setSelectedRecipe(recipe);
@@ -60,13 +78,16 @@ export const RecipesTab: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* AI URL Import Button */}
+          {/* URL Import Button */}
           <button
-            onClick={() => setIsImportingUrl(true)}
+            onClick={() => {
+              setActiveImportDraft(null);
+              setIsImportingUrl(true);
+            }}
             className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-[#8C5D33] bg-[#FAF0EC] hover:bg-[#F6E5DD] border border-[#F0D5C9] rounded-xl transition-colors cursor-pointer shadow-xs"
           >
-            <Sparkles className="w-4 h-4 text-[#D97D64]" />
-            <span>Importer via URL (IA)</span>
+            <Link2 className="w-4 h-4 text-[#D97D64]" />
+            <span>Importer via URL</span>
           </button>
 
           {/* New Recipe Button */}
@@ -352,12 +373,17 @@ export const RecipesTab: React.FC = () => {
         />
       )}
 
-      {/* AI URL Import Modal */}
+      {/* URL & Bookmarklet Import Modal */}
       {isImportingUrl && (
         <UrlImportModal
-          onClose={() => setIsImportingUrl(false)}
+          initialDraft={activeImportDraft}
+          onClose={() => {
+            setIsImportingUrl(false);
+            setActiveImportDraft(null);
+          }}
           onSuccess={(newRec) => {
             setIsImportingUrl(false);
+            setActiveImportDraft(null);
             setSelectedRecipe(newRec);
           }}
         />
