@@ -9,7 +9,11 @@ import type {
   MealSlotContent,
   GroceryCategory,
 } from '../types/index.ts';
-import { INITIAL_RECIPES, getInitialSchedule } from '../data/mockData.ts';
+import {
+  INITIAL_RECIPES,
+  LEGACY_SAMPLE_RECIPE_IDS,
+  getInitialSchedule,
+} from '../data/mockData.ts';
 import {
   clearLegacyPinStorage,
   evaluateGoogleUserAccess,
@@ -33,6 +37,7 @@ import {
   subscribeUserData,
   saveRecipeToCloud,
   deleteRecipeFromCloud,
+  migrateCatalogInCloud,
   saveDayPlanToCloud,
   saveGroceryItemToCloud,
   deleteGroceryItemFromCloud,
@@ -98,6 +103,8 @@ const AppContext = createContext<AppContextValue | null>(null);
 const STORAGE_RECIPES = 'miam_planner_recipes_v1';
 const STORAGE_SCHEDULE = 'miam_planner_schedule_v1';
 const STORAGE_GROCERIES = 'miam_planner_groceries_v1';
+const STORAGE_CATALOG_MIGRATED = 'miam_planner_catalog_v1';
+const LEGACY_SAMPLE_SET = new Set(LEGACY_SAMPLE_RECIPE_IDS);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [authReady, setAuthReady] = useState<boolean>(!auth);
@@ -118,6 +125,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const cloudScheduleKeysRef = useRef<Set<string>>(new Set());
   const cloudGroceryIdsRef = useRef<Set<string>>(new Set());
   const initialCloudSeededRef = useRef<string | null>(null);
+  const catalogMigratedForUidRef = useRef<Set<string>>(new Set());
   const authCheckSeqRef = useRef<number>(0);
 
   // Clean up obsolete PIN keys and track online status
@@ -153,14 +161,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [recipes, setRecipes] = useState<Recipe[]>(() => {
     if (typeof window === 'undefined') return INITIAL_RECIPES;
     const saved = localStorage.getItem(STORAGE_RECIPES);
+    const alreadyMigrated = localStorage.getItem(STORAGE_CATALOG_MIGRATED) === '1';
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          const validSaved = parsed
+            .map((r) => sanitizeRecipe(r))
+            .filter((r): r is Recipe => r !== null);
+          const hasLegacy = validSaved.some((r) => LEGACY_SAMPLE_SET.has(r.id));
+          const hasFamily = validSaved.some((r) => r.id.startsWith('fam-'));
+
+          if (hasLegacy || (!hasFamily && !alreadyMigrated)) {
+            const customOnly = validSaved.filter(
+              (r) => !LEGACY_SAMPLE_SET.has(r.id) && !r.id.startsWith('fam-')
+            );
+            localStorage.setItem(STORAGE_CATALOG_MIGRATED, '1');
+            return [...customOnly, ...INITIAL_RECIPES];
+          }
+          return validSaved;
+        }
       } catch (e) {
         console.error('Failed to parse saved recipes:', e);
       }
     }
+    localStorage.setItem(STORAGE_CATALOG_MIGRATED, '1');
     return INITIAL_RECIPES;
   });
 
@@ -304,14 +329,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           cloudRecipeIdsRef.current = new Set(cloudRecipes.map((r) => r.id));
           if (isEmpty && initialCloudSeededRef.current !== uid) {
             initialCloudSeededRef.current = uid;
-            // Seed initial local recipes to user's private cloud space on first connection
-            recipesRef.current.forEach((rec) => {
-              saveRecipeToCloud(uid, rec, true).catch((err) => {
-                console.error('Seed recipe failed:', err);
-              });
+            catalogMigratedForUidRef.current.add(uid);
+            localStorage.setItem(`${STORAGE_CATALOG_MIGRATED}_${uid}`, '1');
+            migrateCatalogInCloud(uid, [], recipesRef.current).catch((err) => {
+              console.error('Seed recipes failed:', err);
+              setCloudSyncStatus('error');
             });
           } else if (!isEmpty) {
-            setRecipes(cloudRecipes);
+            const hasLegacySamples = cloudRecipes.some((r) => LEGACY_SAMPLE_SET.has(r.id));
+            const hasFamilyCatalog = cloudRecipes.some((r) => r.id.startsWith('fam-'));
+            const cloudMarker = localStorage.getItem(`${STORAGE_CATALOG_MIGRATED}_${uid}`) === '1';
+
+            if (
+              !catalogMigratedForUidRef.current.has(uid) &&
+              (hasLegacySamples || (!hasFamilyCatalog && !cloudMarker))
+            ) {
+              catalogMigratedForUidRef.current.add(uid);
+              localStorage.setItem(`${STORAGE_CATALOG_MIGRATED}_${uid}`, '1');
+              const legacyIds = cloudRecipes
+                .filter((r) => LEGACY_SAMPLE_SET.has(r.id))
+                .map((r) => r.id);
+              const existingIds = new Set(cloudRecipes.map((r) => r.id));
+              const missingFamily = INITIAL_RECIPES.filter((r) => !existingIds.has(r.id));
+              migrateCatalogInCloud(uid, legacyIds, missingFamily).catch((err) => {
+                console.error('Catalog migration failed:', err);
+                setCloudSyncStatus('error');
+              });
+            } else {
+              setRecipes(cloudRecipes);
+            }
           }
           setCloudSyncStatus('synced');
         },

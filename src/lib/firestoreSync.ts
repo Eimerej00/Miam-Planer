@@ -8,6 +8,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
   type Unsubscribe,
   Timestamp,
 } from 'firebase/firestore';
@@ -228,6 +229,48 @@ export async function deleteRecipeFromCloud(uid: string, recipeId: string): Prom
     await deleteDoc(doc(db, path));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function migrateCatalogInCloud(
+  uid: string,
+  legacyIdsToDelete: string[],
+  recipesToCreate: Recipe[]
+): Promise<void> {
+  if (!db) return;
+  const firestore = db;
+  const basePath = `users/${uid}/recipes`;
+
+  type BatchOp =
+    | { kind: 'delete'; id: string }
+    | { kind: 'create'; recipe: Recipe };
+
+  const ops: BatchOp[] = [
+    ...legacyIdsToDelete.map((id): BatchOp => ({ kind: 'delete', id })),
+    ...recipesToCreate.map((recipe): BatchOp => ({ kind: 'create', recipe })),
+  ];
+
+  if (ops.length === 0) return;
+
+  try {
+    const CHUNK_SIZE = 400;
+    for (let i = 0; i < ops.length; i += CHUNK_SIZE) {
+      const chunk = ops.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(firestore);
+      for (const op of chunk) {
+        if (op.kind === 'delete') {
+          batch.delete(doc(firestore, `${basePath}/${op.id}`));
+        } else {
+          batch.set(
+            doc(firestore, `${basePath}/${op.recipe.id}`),
+            serializeRecipeForFirestore(op.recipe, uid, true)
+          );
+        }
+      }
+      await batch.commit();
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, basePath);
   }
 }
 
